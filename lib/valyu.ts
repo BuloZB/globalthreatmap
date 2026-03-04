@@ -939,7 +939,7 @@ export function getMilitaryBases(): MilitaryBase[] {
     // ===== AFRICA - NORTH =====
     { country: "Egypt", baseName: "Cairo West Air Base", latitude: 30.1164, longitude: 30.9153, type: "usa" },
     { country: "Egypt", baseName: "Borg El Arab Airport", latitude: 30.9177, longitude: 29.6964, type: "usa" },
-    { country: "Tunisia", baseName: "Sidi Ahmed Air Base", latitude: 37.2453, longitude: 9.7944, type: "usa" },
+    // { country: "Tunisia", baseName: "Sidi Ahmed Air Base", latitude: 37.2453, longitude: 9.7944, type: "usa" },
     { country: "Morocco", baseName: "Tan-Tan Air Base", latitude: 28.4482, longitude: -11.1613, type: "usa" },
     { country: "Libya", baseName: "Misrata Air Base", latitude: 32.3250, longitude: 15.0611, type: "usa" },
 
@@ -1262,17 +1262,33 @@ export async function* streamCountryConflicts(
   // Use OAuth proxy if accessToken is provided (non-streaming)
   if (options?.accessToken) {
     try {
-      // Current conflicts via proxy
-      const currentResult = await callViaProxy(
-        "/v1/answer",
-        { query: currentQuery, excluded_sources: ["wikipedia.org"] },
-        options.accessToken
-      );
+      // Run both queries in parallel to cut wait time in half
+      const [currentResult, pastResult] = await Promise.all([
+        callViaProxy(
+          "/v1/answer",
+          { query: currentQuery, excluded_sources: ["wikipedia.org"] },
+          options.accessToken
+        ),
+        callViaProxy(
+          "/v1/answer",
+          { query: pastQuery, excluded_sources: ["wikipedia.org"] },
+          options.accessToken
+        ),
+      ]);
 
+      // Handle reauth/credit errors
+      if (currentResult.requiresReauth || pastResult.requiresReauth) {
+        yield { type: "error", error: "Session expired. Please sign in again." };
+        return;
+      }
+      if (currentResult.requiresCredits || pastResult.requiresCredits) {
+        yield { type: "error", error: "Insufficient credits. Please top up." };
+        return;
+      }
+
+      // Yield current conflicts
       if (currentResult.success && currentResult.data) {
-        if (currentResult.data.contents) {
-          yield { type: "current_content", content: currentResult.data.contents };
-        }
+        yield { type: "current_content", content: currentResult.data.contents || "No current conflicts found." };
         if (currentResult.data.search_results) {
           yield {
             type: "current_sources",
@@ -1282,19 +1298,14 @@ export async function* streamCountryConflicts(
             })),
           };
         }
+      } else {
+        yield { type: "current_content", content: "Unable to retrieve current conflicts." };
+        yield { type: "current_sources", sources: [] };
       }
 
-      // Past conflicts via proxy
-      const pastResult = await callViaProxy(
-        "/v1/answer",
-        { query: pastQuery, excluded_sources: ["wikipedia.org"] },
-        options.accessToken
-      );
-
+      // Yield past conflicts
       if (pastResult.success && pastResult.data) {
-        if (pastResult.data.contents) {
-          yield { type: "past_content", content: pastResult.data.contents };
-        }
+        yield { type: "past_content", content: pastResult.data.contents || "No historical conflicts found." };
         if (pastResult.data.search_results) {
           yield {
             type: "past_sources",
@@ -1304,6 +1315,9 @@ export async function* streamCountryConflicts(
             })),
           };
         }
+      } else {
+        yield { type: "past_content", content: "Unable to retrieve historical conflicts." };
+        yield { type: "past_sources", sources: [] };
       }
 
       yield { type: "done" };

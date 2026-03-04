@@ -32,13 +32,23 @@ export async function GET(request: Request) {
 
     const readable = new ReadableStream({
       async start(controller) {
+        // Send heartbeat comments to keep the connection alive
+        const heartbeat = setInterval(() => {
+          controller.enqueue(encoder.encode(": heartbeat\n\n"));
+        }, 5000);
+
         try {
+          // Send initial heartbeat immediately
+          controller.enqueue(encoder.encode(": connected\n\n"));
+
           for await (const chunk of streamCountryConflicts(country, { accessToken: accessToken || undefined })) {
             const data = `data: ${JSON.stringify(chunk)}\n\n`;
             controller.enqueue(encoder.encode(data));
           }
+          clearInterval(heartbeat);
           controller.close();
         } catch (error) {
+          clearInterval(heartbeat);
           const errorData = `data: ${JSON.stringify({
             type: "error",
             error: error instanceof Error ? error.message : "Unknown error",

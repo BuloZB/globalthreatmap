@@ -1,20 +1,28 @@
 FROM node:20-alpine
 
-
-# installing git to clone the app 
-RUN apk add --no-cache git 
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
 WORKDIR /app
 
-# cloning the repo of the app
-RUN git clone https://github.com/unicodeveloper/globalthreatmap.git .
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile || pnpm install
 
-# install the app with dependencies
-RUN npm install --legacy-peer-deps
+COPY . .
 
-# Needed to reach the app from outside
+ARG NEXT_PUBLIC_APP_MODE
+ARG NEXT_PUBLIC_MAPBOX_TOKEN
+ARG NEXT_PUBLIC_REDIRECT_URI
+ARG NEXT_PUBLIC_VALYU_AUTH_URL
+ARG NEXT_PUBLIC_VALYU_CLIENT_ID
+
+ENV NEXT_PUBLIC_APP_MODE=$NEXT_PUBLIC_APP_MODE
+ENV NEXT_PUBLIC_MAPBOX_TOKEN=$NEXT_PUBLIC_MAPBOX_TOKEN
+ENV NEXT_PUBLIC_REDIRECT_URI=$NEXT_PUBLIC_REDIRECT_URI
+ENV NEXT_PUBLIC_VALYU_AUTH_URL=$NEXT_PUBLIC_VALYU_AUTH_URL
+ENV NEXT_PUBLIC_VALYU_CLIENT_ID=$NEXT_PUBLIC_VALYU_CLIENT_ID
+
+RUN pnpm run build
+
 EXPOSE 3000
 
-# runing the app
-CMD ["npm", "run", "dev"]
-
+CMD ["pnpm", "start"]
